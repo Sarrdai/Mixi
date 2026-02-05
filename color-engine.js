@@ -51,25 +51,25 @@ const ColorEngine = (() => {
   // recipes: Welche Kombinationen diese Farbe erzeugen [[a,b], ...]
   const COLOR_DEFS = {
     // Primärfarben (Stufe 1) - 120° Abstände
-    rot:          { ryb: [1, 0, 0],     tier: 1, name: 'Rot',         wheelAngle: 0,   ring: 1, recipes: [] },
-    gelb:         { ryb: [0, 1, 0],     tier: 1, name: 'Gelb',        wheelAngle: 120, ring: 1, recipes: [] },
-    blau:         { ryb: [0, 0, 1],     tier: 1, name: 'Blau',        wheelAngle: 240, ring: 1, recipes: [] },
+    rot:          { ryb: [1, 0, 0],     tier: 1, name: 'Rot',         wheelAngle: 0,   ring: 1 },
+    gelb:         { ryb: [0, 1, 0],     tier: 1, name: 'Gelb',        wheelAngle: 120, ring: 1 },
+    blau:         { ryb: [0, 0, 1],     tier: 1, name: 'Blau',        wheelAngle: 240, ring: 1 },
 
     // Sekundärfarben (Stufe 2) - zwischen Primärfarben
-    orange:       { ryb: [1, 1, 0],     tier: 2, name: 'Orange',      wheelAngle: 60,  ring: 2, recipes: [['rot','gelb']] },
-    gruen:        { ryb: [0, 1, 1],     tier: 2, name: 'Grün',        wheelAngle: 180, ring: 2, recipes: [['gelb','blau']] },
-    violett:      { ryb: [1, 0, 1],     tier: 2, name: 'Violett',     wheelAngle: 300, ring: 2, recipes: [['rot','blau']] },
+    orange:       { ryb: [1, 1, 0],     tier: 2, name: 'Orange',      wheelAngle: 60,  ring: 2 },
+    gruen:        { ryb: [0, 1, 1],     tier: 2, name: 'Grün',        wheelAngle: 180, ring: 2 },
+    violett:      { ryb: [1, 0, 1],     tier: 2, name: 'Violett',     wheelAngle: 300, ring: 2 },
 
     // Tertiärfarben (Stufe 3) - zwischen Primär- und Sekundärfarben
-    rotorange:    { ryb: [2, 1, 0],     tier: 3, name: 'Rot-Orange',  wheelAngle: 30,  ring: 3, recipes: [['rot','orange']] },
-    gelborange:   { ryb: [1, 2, 0],     tier: 3, name: 'Gelb-Orange', wheelAngle: 90,  ring: 3, recipes: [['gelb','orange']] },
-    gelbgruen:    { ryb: [0, 2, 1],     tier: 3, name: 'Gelb-Grün',   wheelAngle: 150, ring: 3, recipes: [['gelb','gruen']] },
-    blaugruen:    { ryb: [0, 1, 2],     tier: 3, name: 'Blau-Grün',   wheelAngle: 210, ring: 3, recipes: [['blau','gruen']] },
-    blauviolett:  { ryb: [1, 0, 2],     tier: 3, name: 'Blau-Violett',wheelAngle: 270, ring: 3, recipes: [['blau','violett']] },
-    rotviolett:   { ryb: [2, 0, 1],     tier: 3, name: 'Rot-Violett', wheelAngle: 330, ring: 3, recipes: [['rot','violett']] },
+    rotorange:    { ryb: [2, 1, 0],     tier: 3, name: 'Rot-Orange',  wheelAngle: 30,  ring: 3 },
+    gelborange:   { ryb: [1, 2, 0],     tier: 3, name: 'Gelb-Orange', wheelAngle: 90,  ring: 3 },
+    gelbgruen:    { ryb: [0, 2, 1],     tier: 3, name: 'Gelb-Grün',   wheelAngle: 150, ring: 3 },
+    blaugruen:    { ryb: [0, 1, 2],     tier: 3, name: 'Blau-Grün',   wheelAngle: 210, ring: 3 },
+    blauviolett:  { ryb: [1, 0, 2],     tier: 3, name: 'Blau-Violett',wheelAngle: 270, ring: 3 },
+    rotviolett:   { ryb: [2, 0, 1],     tier: 3, name: 'Rot-Violett', wheelAngle: 330, ring: 3 },
 
     // Spezialfarbe - im Zentrum
-    braun:        { ryb: [1, 1, 1],     tier: 3, name: 'Braun',       wheelAngle: 0,   ring: 0, recipes: [['rot','gruen'],['orange','violett'],['gelb','violett'],['blau','orange']] },
+    braun:        { ryb: [1, 1, 1],     tier: 3, name: 'Braun',       wheelAngle: 0,   ring: 0 },
   };
 
   // Vorberechne RGB-Werte für alle Farben
@@ -93,9 +93,56 @@ const ColorEngine = (() => {
     return Math.sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
   }
 
+  // --- Misch-Funktion (intern, unabhängig von maxTier) ---
+
+  function mixInternal(colorId1, colorId2) {
+    const c1 = COLOR_DEFS[colorId1];
+    const c2 = COLOR_DEFS[colorId2];
+    if (!c1 || !c2) return null;
+
+    const mixedRyb = [
+      c1.ryb[0] + c2.ryb[0],
+      c1.ryb[1] + c2.ryb[1],
+      c1.ryb[2] + c2.ryb[2],
+    ];
+
+    const maxVal = Math.max(...mixedRyb, 1);
+    const normalized = mixedRyb.map(v => v / maxVal);
+    const mixedRgb = rybToRgb(normalized[0], normalized[1], normalized[2]);
+
+    // Nearest Neighbour über ALLE Farben (unabhängig von maxTier)
+    let bestId = null;
+    let bestDist = Infinity;
+
+    for (const [id, c] of Object.entries(COLOR_DEFS)) {
+      const dist = colorDistance(mixedRgb, c.rgb);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = id;
+      }
+    }
+
+    return bestId;
+  }
+
+  // --- Rezepte automatisch berechnen aus der echten Mischlogik ---
+  // Garantiert, dass Hinweis-Linien exakt dem Matching entsprechen.
+  const allIds = Object.keys(COLOR_DEFS);
+  allIds.forEach(id => { COLOR_DEFS[id].recipes = []; });
+
+  for (let i = 0; i < allIds.length; i++) {
+    for (let j = i + 1; j < allIds.length; j++) {
+      const a = allIds[i], b = allIds[j];
+      const resultId = mixInternal(a, b);
+      if (resultId && resultId !== a && resultId !== b) {
+        COLOR_DEFS[resultId].recipes.push([a, b]);
+      }
+    }
+  }
+
   // --- Öffentliche API ---
 
-  let maxTier = 3; // Standard: alle Stufen
+  let maxTier = 3;
 
   function setMaxTier(tier) {
     maxTier = Math.max(1, Math.min(3, tier));
@@ -119,30 +166,23 @@ const ColorEngine = (() => {
 
   /**
    * Mischt zwei Farben im RYB-Raum und findet die nächste konfigurierte Farbe.
-   * @param {string} colorId1 - ID der ersten Farbe
-   * @param {string} colorId2 - ID der zweiten Farbe
-   * @returns {{ id: string, color: object, mixRgb: number[] }} nächste passende Farbe
+   * Beachtet maxTier für die Nearest-Neighbour-Suche.
    */
   function mix(colorId1, colorId2) {
     const c1 = COLOR_DEFS[colorId1];
     const c2 = COLOR_DEFS[colorId2];
     if (!c1 || !c2) return null;
 
-    // RYB-Anteile addieren (1:1 Verhältnis)
     const mixedRyb = [
       c1.ryb[0] + c2.ryb[0],
       c1.ryb[1] + c2.ryb[1],
       c1.ryb[2] + c2.ryb[2],
     ];
 
-    // Normalisieren
     const maxVal = Math.max(...mixedRyb, 1);
     const normalized = mixedRyb.map(v => v / maxVal);
-
-    // RGB berechnen
     const mixedRgb = rybToRgb(normalized[0], normalized[1], normalized[2]);
 
-    // Nearest Neighbour unter verfügbaren Farben finden
     const available = getAvailableColors();
     let bestId = null;
     let bestDist = Infinity;

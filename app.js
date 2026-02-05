@@ -269,7 +269,12 @@
     const potSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
     const halfPot = potSize / 2;
 
-    color.recipes.forEach(([a, b]) => {
+    // Only show recipes where both ingredients are already discovered
+    const actionableRecipes = color.recipes.filter(([a, b]) =>
+      discoveredColors.has(a) && discoveredColors.has(b)
+    );
+
+    actionableRecipes.forEach(([a, b]) => {
       const posA = potHomePositions[a];
       const posB = potHomePositions[b];
       const posT = potHomePositions[targetId];
