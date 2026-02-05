@@ -9,6 +9,8 @@
   const STORAGE_KEY = 'farbmisch-discovered';
   const SPLATTER_KEY = 'farbmisch-splatters';
   const MIX_STATE_KEY = 'farbmisch-mixpot';
+  const FLY_DURATION = 700;
+  const SPONGE_RUB_THRESHOLD = 120; // cumulative px movement to clear mixer
 
   // --- DOM-Refs ---
   const playground = document.getElementById('playground');
@@ -38,13 +40,14 @@
   let discoveredColors = new Set();
   let selectedPotId = null;
   let mixPotColorId = null;
-  let potElements = {};       // All pots (discovered + empty)
-  let potHomePositions = {};   // Pixel positions for every pot slot
+  let potElements = {};
+  let potHomePositions = {};
   let dragging = null;
   let splatters = [];
   let rewardShown = false;
-  let hintTimer = null;        // Long-press timer for hints
-  let activeHintId = null;     // Currently showing hints for this color
+  let hintTimer = null;
+  let activeHintId = null;
+  let currentScale = 1;
 
   // --- Init ---
   function init() {
@@ -99,7 +102,7 @@
   function addSplatter(x, y, color, size) {
     const offsets = [];
     for (let i = 0; i < 8; i++) offsets.push(0.7 + Math.random() * 0.6);
-    const splat = { x, y, color, size: size || 15 + Math.random() * 25, offsets };
+    const splat = { x, y, color, size: size || 8 + Math.random() * 14, offsets };
     splatters.push(splat);
     drawSplatter(splat);
     saveState();
@@ -152,11 +155,7 @@
     colorPotsContainer.innerHTML = '';
     potElements = {};
 
-    // Wheel colors (ring > 0)
-    const wheelIds = ColorEngine.getWheelOrder();
-    // Center colors (ring 0, e.g. braun)
-    const centerIds = ColorEngine.getCenterColors();
-    const allIds = [...wheelIds, ...centerIds];
+    const allIds = ColorEngine.getWheelOrder();
 
     allIds.forEach(id => {
       const color = ColorEngine.getColor(id);
@@ -191,67 +190,80 @@
     });
   }
 
-  // --- Color Wheel Layout ---
+  // --- Color Wheel Layout (fills available space, scales mixer too) ---
   function layoutPots() {
     const rect = playground.getBoundingClientRect();
     const W = rect.width;
     const H = rect.height;
-    const potSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
-    const mixSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--mix-pot-size'));
+    const basePotSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
+    const baseMixSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--mix-pot-size'));
 
     const centerX = W / 2;
     const centerY = H / 2;
 
-    // Place mixing pot at center
-    mixingPot.style.left = (centerX - mixSize / 2) + 'px';
-    mixingPot.style.top = (centerY - mixSize / 2) + 'px';
+    // Available space from center to edge
+    const halfMin = Math.min(W / 2, H / 2);
 
-    // Determine available radius
-    const maxAvail = Math.min(W / 2, H / 2) - potSize * 0.7;
+    // We need the outer ring (primary) to fit with pots fully visible.
+    // outerRadius + potSize/2 + margin <= halfMin
+    // We want to maximize usage of space.
+    const margin = 8;
+    const outerRadius = halfMin - basePotSize / 2 - margin;
 
-    // Ring radii: outer (primary), middle (secondary), inner (tertiary)
+    // Ring ratios relative to outer
     const ringRadii = {
-      1: maxAvail * 0.92,  // Primary: outermost
-      2: maxAvail * 0.62,  // Secondary: middle
-      3: maxAvail * 0.35,  // Tertiary: inner
+      1: outerRadius,
+      2: outerRadius * 0.67,
+      3: outerRadius * 0.38,
     };
 
-    // Auto-scale if too cramped
+    // Check if inner ring has enough room for the mixer
+    // innerRadius must be > mixSize/2 + potSize/2 + gap
+    const innerGap = basePotSize * 0.3;
+    const neededInner = baseMixSize / 2 + basePotSize / 2 + innerGap;
+
+    // Scale everything uniformly if inner ring is too cramped
     let scale = 1;
-    const minRadius = mixSize / 2 + potSize * 0.6;
-    if (ringRadii[3] < minRadius) {
-      scale = Math.max(0.5, minRadius / (maxAvail * 0.35));
-      // Don't scale up, only apply scaling to pots if space is too small
-      scale = Math.min(1, 1 / scale);
+    if (ringRadii[3] < neededInner) {
+      scale = ringRadii[3] / neededInner;
+    }
+    // Also ensure outer pots don't overlap (12 pots on outer+mid+inner)
+    // The tightest ring is ring 3 with 6 items at 60° spacing
+    const minArcDist = basePotSize * scale * 0.9;
+    const ring3Circ = 2 * Math.PI * ringRadii[3];
+    const ring3Spacing = ring3Circ / 6;
+    if (ring3Spacing < minArcDist) {
+      scale = Math.min(scale, ring3Spacing / (basePotSize * 0.9));
     }
 
-    const allIds = ColorEngine.getAllColorIds();
+    scale = Math.max(0.4, Math.min(1, scale));
+    currentScale = scale;
 
+    const potSize = basePotSize * scale;
+    const mixSize = baseMixSize * scale;
+
+    // Scale mixing pot
+    mixingPot.style.left = (centerX - mixSize / 2) + 'px';
+    mixingPot.style.top = (centerY - mixSize / 2) + 'px';
+    mixingPot.style.width = mixSize + 'px';
+    mixingPot.style.height = mixSize + 'px';
+
+    // Place all pots on the wheel
+    const allIds = ColorEngine.getAllColorIds();
     allIds.forEach(id => {
       const el = potElements[id];
       if (!el) return;
       const color = ColorEngine.getColor(id);
 
-      if (color.ring === 0) {
-        // Center color (braun) - place near mixing pot, offset below
-        const x = centerX - potSize / 2;
-        const y = centerY + mixSize / 2 + 10;
-        el.style.left = x + 'px';
-        el.style.top = y + 'px';
-        potHomePositions[id] = { x, y };
-        el.style.transform = scale < 1 ? `scale(${scale})` : '';
-        return;
-      }
-
       const radius = ringRadii[color.ring] || ringRadii[1];
-      // Convert wheelAngle to radians; 0° = top (12 o'clock), clockwise
       const angleRad = (color.wheelAngle - 90) * (Math.PI / 180);
       const x = centerX + Math.cos(angleRad) * radius - potSize / 2;
       const y = centerY + Math.sin(angleRad) * radius - potSize / 2;
 
       el.style.left = x + 'px';
       el.style.top = y + 'px';
-      el.style.transform = scale < 1 ? `scale(${scale})` : '';
+      el.style.width = potSize + 'px';
+      el.style.height = potSize + 'px';
       potHomePositions[id] = { x, y };
     });
   }
@@ -266,10 +278,9 @@
     const targetEl = potElements[targetId];
     if (targetEl) targetEl.classList.add('hint-active');
 
-    const potSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
-    const halfPot = potSize / 2;
+    const basePotSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
+    const halfPot = basePotSize * currentScale / 2;
 
-    // Only show recipes where both ingredients are already discovered
     const actionableRecipes = color.recipes.filter(([a, b]) =>
       discoveredColors.has(a) && discoveredColors.has(b)
     );
@@ -283,7 +294,6 @@
       const colorA = ColorEngine.getColor(a);
       const colorB = ColorEngine.getColor(b);
 
-      // Line from A to target
       const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line1.setAttribute('x1', posA.x + halfPot);
       line1.setAttribute('y1', posA.y + halfPot);
@@ -293,7 +303,6 @@
       line1.setAttribute('stroke', colorA ? colorA.hex : '#888');
       hintSvg.appendChild(line1);
 
-      // Line from B to target
       const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line2.setAttribute('x1', posB.x + halfPot);
       line2.setAttribute('y1', posB.y + halfPot);
@@ -303,7 +312,6 @@
       line2.setAttribute('stroke', colorB ? colorB.hex : '#888');
       hintSvg.appendChild(line2);
 
-      // Highlight source pots
       const elA = potElements[a];
       const elB = potElements[b];
       if (elA) elA.classList.add('hint-active');
@@ -360,50 +368,85 @@
   }
 
   // --- Fly color blob from mix pot to target pot ---
-  function flyColorToTarget(colorId, callback) {
-    const color = ColorEngine.getColor(colorId);
+  // Uses JS animation (requestAnimationFrame) for reliable, smooth motion
+  function flyColorToTarget(colorId, hexColor, callback) {
     const targetHome = potHomePositions[colorId];
-    if (!color || !targetHome) {
+    if (!targetHome) {
       if (callback) callback();
       return;
     }
 
     const pgRect = playground.getBoundingClientRect();
     const mixRect = mixingPot.getBoundingClientRect();
-    const potSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
+    const basePotSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
+    const potSize = basePotSize * currentScale;
 
     const blob = document.createElement('div');
     blob.className = 'color-fly-blob';
-    blob.style.backgroundColor = color.hex;
+    blob.style.backgroundColor = hexColor;
+    blob.style.position = 'absolute';
+    blob.style.pointerEvents = 'none';
+    blob.style.borderRadius = '50%';
+    blob.style.zIndex = '100';
 
-    // Start at mix pot center
-    const startSize = 40;
+    const startSize = potSize * 0.45;
+    const endSize = potSize * 0.6;
     const startX = (mixRect.left - pgRect.left) + mixRect.width / 2 - startSize / 2;
     const startY = (mixRect.top - pgRect.top) + mixRect.height / 2 - startSize / 2;
+    const endX = targetHome.x + potSize / 2 - endSize / 2;
+    const endY = targetHome.y + potSize / 2 - endSize / 2;
+
     blob.style.width = startSize + 'px';
     blob.style.height = startSize + 'px';
     blob.style.left = startX + 'px';
     blob.style.top = startY + 'px';
+    blob.style.opacity = '1';
+    blob.style.border = '3px solid ' + getComputedStyle(document.documentElement).getPropertyValue('--pot-border').trim();
     playground.appendChild(blob);
 
-    // Animate to target pot
-    requestAnimationFrame(() => {
-      blob.style.left = (targetHome.x + potSize / 2 - potSize * 0.3) + 'px';
-      blob.style.top = (targetHome.y + potSize / 2 - potSize * 0.3) + 'px';
-      blob.style.width = (potSize * 0.6) + 'px';
-      blob.style.height = (potSize * 0.6) + 'px';
-      blob.style.opacity = '0.7';
-    });
+    const startTime = performance.now();
+    const duration = FLY_DURATION;
 
-    setTimeout(() => {
-      blob.remove();
-      if (callback) callback();
-    }, 750);
+    // Drop splatters along the path randomly
+    let lastSplatTime = 0;
+
+    function animate(now) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const ease = 1 - Math.pow(1 - t, 3);
+
+      const cx = startX + (endX - startX) * ease;
+      const cy = startY + (endY - startY) * ease;
+      const cs = startSize + (endSize - startSize) * ease;
+
+      blob.style.left = cx + 'px';
+      blob.style.top = cy + 'px';
+      blob.style.width = cs + 'px';
+      blob.style.height = cs + 'px';
+      blob.style.opacity = String(1 - t * 0.3);
+
+      // Random drip along path
+      if (now - lastSplatTime > 100 && Math.random() < 0.15) {
+        const offsetX = (Math.random() - 0.5) * 20;
+        const offsetY = (Math.random() - 0.5) * 20;
+        addSplatter(cx + cs / 2 + offsetX, cy + cs / 2 + offsetY, hexColor, 5 + Math.random() * 8);
+        lastSplatTime = now;
+      }
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        blob.remove();
+        if (callback) callback();
+      }
+    }
+
+    requestAnimationFrame(animate);
   }
 
   // --- Core: Add color to mix ---
   function addToMix(colorId, sourceEl) {
-    // Only allow dragging discovered colors
     if (!discoveredColors.has(colorId)) return;
 
     if (sourceEl) {
@@ -412,15 +455,6 @@
     }
 
     const incomingColor = ColorEngine.getColor(colorId);
-
-    // Random splatter near mix pot
-    const mixRect = mixingPot.getBoundingClientRect();
-    const pgRect = playground.getBoundingClientRect();
-    const splashX = (mixRect.left - pgRect.left) + mixRect.width / 2 + (Math.random() - 0.5) * 80;
-    const splashY = (mixRect.top - pgRect.top) + mixRect.height / 2 + (Math.random() - 0.5) * 80;
-    if (Math.random() > 0.4) {
-      addSplatter(splashX, splashY, incomingColor.hex);
-    }
 
     if (!mixPotColorId) {
       mixPotColorId = colorId;
@@ -431,7 +465,6 @@
       return;
     }
 
-    // Mix two colors
     const result = ColorEngine.mix(mixPotColorId, colorId);
     if (!result) return;
 
@@ -439,6 +472,7 @@
 
     setTimeout(() => {
       const isNewDiscovery = !discoveredColors.has(result.id);
+      const resultHex = result.color.hex;
 
       mixPotColorId = result.id;
       animateMixFill();
@@ -446,28 +480,19 @@
       saveState();
 
       if (isNewDiscovery) {
-        // --- New color discovered ---
         discoveredColors.add(result.id);
         saveState();
-
-        // Show auto-dismissing popup
         showDiscoveryPopup(result.color, result.id);
-
       } else {
-        // --- Already known color: fly to pot and clear mix ---
-        flyColorToTarget(result.id, () => {
-          // Briefly highlight the target pot
+        // Already known: fly to pot and clear
+        flyColorToTarget(result.id, resultHex, () => {
           const targetEl = potElements[result.id];
           if (targetEl) {
             targetEl.classList.add('new-discovery');
             setTimeout(() => targetEl.classList.remove('new-discovery'), 600);
           }
         });
-
-        // Clear mix pot after flying
-        setTimeout(() => {
-          clearMixPot();
-        }, 200);
+        setTimeout(() => clearMixPot(), 100);
       }
     }, 300);
   }
@@ -490,17 +515,14 @@
     void discoveryPopup.offsetWidth;
     discoveryPopup.classList.add('auto-dismiss');
 
-    // After popup fades out (~2s), update pots and fly color to its slot
     setTimeout(() => {
       discoveryPopup.classList.add('hidden');
       discoveryPopup.classList.remove('auto-dismiss');
 
-      // Re-render to convert empty pot to filled
       renderAllPots();
       layoutPots();
 
-      // Fly the color blob from mix pot to the new pot
-      flyColorToTarget(colorId, () => {
+      flyColorToTarget(colorId, color.hex, () => {
         const newPot = potElements[colorId];
         if (newPot) {
           newPot.classList.add('new-discovery');
@@ -508,15 +530,9 @@
         }
       });
 
-      // Clear the mix pot
-      setTimeout(() => {
-        clearMixPot();
-      }, 100);
-
-      // Update progress
+      setTimeout(() => clearMixPot(), 100);
       renderProgress();
 
-      // Check for full completion
       if (discoveredColors.size >= ColorEngine.getTotalDiscoverable() && !rewardShown) {
         setTimeout(() => showReward(), 1500);
       }
@@ -567,7 +583,6 @@
 
     mixingPot.addEventListener('pointerup', onMixPotClick);
 
-    // Popup: click backdrop to dismiss early
     discoveryPopup.addEventListener('click', (e) => {
       if (e.target === discoveryPopup) {
         discoveryPopup.classList.add('hidden');
@@ -577,7 +592,6 @@
 
     rewardClose.addEventListener('click', () => rewardOverlay.classList.add('hidden'));
 
-    // Reset
     resetBtn.addEventListener('click', () => {
       resetModal.classList.remove('hidden');
       resetInput.value = '';
@@ -617,10 +631,13 @@
         el: pot,
         type: 'pot',
         colorId: id,
+        color: ColorEngine.getColor(id),
         offsetX: e.clientX - rect.left,
         offsetY: e.clientY - rect.top,
         startX: rect.left - pgRect.left,
         startY: rect.top - pgRect.top,
+        lastX: e.clientX,
+        lastY: e.clientY,
         moved: false,
       };
 
@@ -629,17 +646,14 @@
       pot.setPointerCapture(e.pointerId);
 
     } else if (emptyPot) {
-      // Long-press on empty pot: start hint timer
       e.preventDefault();
       const id = emptyPot.dataset.colorId;
       emptyPot.setPointerCapture(e.pointerId);
 
-      // Show hints immediately on press-and-hold
       hintTimer = setTimeout(() => {
         showHints(id);
       }, 300);
 
-      // Also store info to clear on release
       dragging = {
         el: emptyPot,
         type: 'empty-hint',
@@ -659,7 +673,12 @@
         offsetY: e.clientY - rect.top,
         startX: rect.left - pgRect.left,
         startY: rect.top - pgRect.top,
+        lastX: e.clientX,
+        lastY: e.clientY,
         moved: false,
+        rubDistance: 0,       // cumulative distance while over mixer
+        overMixer: false,
+        mixerCleared: false,
       };
 
       sponge.classList.add('dragging');
@@ -672,7 +691,6 @@
       sponge.style.top = (rect.top - pgRect.top) + 'px';
 
     } else {
-      // Clicked on empty space: clear hints
       clearHints();
     }
   }
@@ -681,7 +699,6 @@
     if (!dragging) return;
 
     if (dragging.type === 'empty-hint') {
-      // Cancel hint if finger moves
       if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
       return;
     }
@@ -700,6 +717,18 @@
       const mixRect = mixingPot.getBoundingClientRect();
       const overMix = isOverElement(e.clientX, e.clientY, mixRect);
       mixingPot.classList.toggle('highlight', overMix);
+
+      // Random drip while dragging a color pot
+      const dx = e.clientX - dragging.lastX;
+      const dy = e.clientY - dragging.lastY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 8 && Math.random() < 0.08) {
+        const dropX = e.clientX - pgRect.left + (Math.random() - 0.5) * 15;
+        const dropY = e.clientY - pgRect.top + (Math.random() - 0.5) * 15;
+        addSplatter(dropX, dropY, dragging.color.hex, 4 + Math.random() * 8);
+      }
+      dragging.lastX = e.clientX;
+      dragging.lastY = e.clientY;
     }
 
     if (dragging.type === 'sponge') {
@@ -708,18 +737,50 @@
       clearSplattersNear(spongeX, spongeY, 40);
 
       const mixRect = mixingPot.getBoundingClientRect();
-      mixingPot.classList.toggle('highlight', isOverElement(e.clientX, e.clientY, mixRect));
+      const overMix = isOverElement(e.clientX, e.clientY, mixRect);
+      mixingPot.classList.toggle('highlight', overMix);
+
+      // Track rubbing distance while over mixer
+      const dx = e.clientX - dragging.lastX;
+      const dy = e.clientY - dragging.lastY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (overMix && !dragging.mixerCleared) {
+        dragging.rubDistance += dist;
+        dragging.overMixer = true;
+
+        // Wiggle animation while rubbing
+        if (dist > 3) {
+          sponge.classList.add('wiping');
+          clearTimeout(dragging.wiggleTimeout);
+          dragging.wiggleTimeout = setTimeout(() => sponge.classList.remove('wiping'), 200);
+        }
+
+        if (dragging.rubDistance >= SPONGE_RUB_THRESHOLD && mixPotColorId) {
+          clearMixPot();
+          dragging.mixerCleared = true;
+          dragging.rubDistance = 0;
+          // Feedback
+          sponge.classList.add('wiping');
+          setTimeout(() => sponge.classList.remove('wiping'), 400);
+        }
+      } else if (!overMix) {
+        dragging.overMixer = false;
+        // Reset rub distance when leaving mixer
+        dragging.rubDistance = 0;
+      }
+
+      dragging.lastX = e.clientX;
+      dragging.lastY = e.clientY;
     }
   }
 
   function onPointerUp(e) {
     if (!dragging) return;
 
-    // Clear hint timer if any
     if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
 
     if (dragging.type === 'empty-hint') {
-      // Release from empty pot: clear hints after a short delay
       setTimeout(clearHints, 200);
       dragging = null;
       return;
@@ -743,15 +804,8 @@
         handlePotClick(colorId, pot);
       }
     } else if (dragging.type === 'sponge') {
-      sponge.classList.remove('dragging');
-
-      const mixRect = mixingPot.getBoundingClientRect();
-      if (dragging.moved && isOverElement(e.clientX, e.clientY, mixRect)) {
-        sponge.classList.add('wiping');
-        setTimeout(() => sponge.classList.remove('wiping'), 400);
-        clearMixPot();
-      }
-
+      sponge.classList.remove('dragging', 'wiping');
+      if (dragging.wiggleTimeout) clearTimeout(dragging.wiggleTimeout);
       returnSpongeHome();
     }
 

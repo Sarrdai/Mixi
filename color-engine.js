@@ -47,8 +47,7 @@ const ColorEngine = (() => {
   // --- Farbdefinitionen (RYB-Anteile) ---
   // Jede Farbe ist definiert als [R, Y, B] Anteile (0-1)
   // wheelAngle: Position auf dem Farbkreis in Grad (0° = oben/12-Uhr, im Uhrzeigersinn)
-  // ring: 1 = äußerer Ring (Primär), 2 = mittlerer Ring (Sekundär), 3 = innerer Ring (Tertiär), 0 = Zentrum
-  // recipes: Welche Kombinationen diese Farbe erzeugen [[a,b], ...]
+  // ring: 1 = äußerer Ring (Primär), 2 = mittlerer Ring (Sekundär), 3 = innerer Ring (Tertiär)
   const COLOR_DEFS = {
     // Primärfarben (Stufe 1) - 120° Abstände
     rot:          { ryb: [1, 0, 0],     tier: 1, name: 'Rot',         wheelAngle: 0,   ring: 1 },
@@ -68,8 +67,6 @@ const ColorEngine = (() => {
     blauviolett:  { ryb: [1, 0, 2],     tier: 3, name: 'Blau-Violett',wheelAngle: 270, ring: 3 },
     rotviolett:   { ryb: [2, 0, 1],     tier: 3, name: 'Rot-Violett', wheelAngle: 330, ring: 3 },
 
-    // Spezialfarbe - im Zentrum
-    braun:        { ryb: [1, 1, 1],     tier: 3, name: 'Braun',       wheelAngle: 0,   ring: 0 },
   };
 
   // Vorberechne RGB-Werte für alle Farben
@@ -218,11 +215,6 @@ const ColorEngine = (() => {
       .sort((a, b) => COLOR_DEFS[a].wheelAngle - COLOR_DEFS[b].wheelAngle);
   }
 
-  /** Returns IDs of colors in the center (ring 0) */
-  function getCenterColors() {
-    return getAllColorIds().filter(id => COLOR_DEFS[id].ring === 0);
-  }
-
   return {
     mix,
     getColor,
@@ -231,7 +223,6 @@ const ColorEngine = (() => {
     getTotalDiscoverable,
     getAllColorIds,
     getWheelOrder,
-    getCenterColors,
     setMaxTier,
     rgbToHex,
     rybToRgb,

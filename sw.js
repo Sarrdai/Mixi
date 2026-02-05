@@ -1,4 +1,4 @@
-const CACHE_NAME = 'farbmisch-v2';
+const CACHE_NAME = 'farbmisch-v3';
 const ASSETS = [
   './',
   './index.html',
