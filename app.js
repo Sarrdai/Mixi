@@ -23,7 +23,6 @@
   const popupColor = document.getElementById('popup-color');
   const popupTitle = document.getElementById('popup-title');
   const popupName = document.getElementById('popup-name');
-  const popupClose = document.getElementById('popup-close');
   const rewardOverlay = document.getElementById('reward-overlay');
   const rewardColors = document.getElementById('reward-colors');
   const rewardClose = document.getElementById('reward-close');
@@ -33,23 +32,25 @@
   const resetCancel = document.getElementById('reset-cancel');
   const splatterCanvas = document.getElementById('splatter-canvas');
   const splatterCtx = splatterCanvas.getContext('2d');
+  const hintSvg = document.getElementById('hint-lines');
 
   // --- State ---
   let discoveredColors = new Set();
   let selectedPotId = null;
   let mixPotColorId = null;
-  let potElements = {};
-  let potHomePositions = {};
-  let dragging = null; // { el, offsetX, offsetY, startX, startY, type:'pot'|'sponge' }
-  let splatters = []; // Saved splatter data
+  let potElements = {};       // All pots (discovered + empty)
+  let potHomePositions = {};   // Pixel positions for every pot slot
+  let dragging = null;
+  let splatters = [];
   let rewardShown = false;
-  let layoutMode = 'radial'; // 'radial' | 'linear'
+  let hintTimer = null;        // Long-press timer for hints
+  let activeHintId = null;     // Currently showing hints for this color
 
   // --- Init ---
   function init() {
     loadState();
     setupSplatterCanvas();
-    renderPots();
+    renderAllPots();
     renderProgress();
     updateMixPotVisual();
     layoutPots();
@@ -62,8 +63,7 @@
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const arr = JSON.parse(saved);
-        discoveredColors = new Set(arr);
+        discoveredColors = new Set(JSON.parse(saved));
       }
       const mixState = localStorage.getItem(MIX_STATE_KEY);
       if (mixState) {
@@ -76,7 +76,6 @@
     } catch (e) {
       discoveredColors = new Set();
     }
-    // Ensure primaries are always discovered
     ColorEngine.getPrimaryColors().forEach(c => discoveredColors.add(c.id));
   }
 
@@ -98,7 +97,6 @@
   }
 
   function addSplatter(x, y, color, size) {
-    // Store random seed offsets for consistent redrawing
     const offsets = [];
     for (let i = 0; i < 8; i++) offsets.push(0.7 + Math.random() * 0.6);
     const splat = { x, y, color, size: size || 15 + Math.random() * 25, offsets };
@@ -149,35 +147,51 @@
     }
   }
 
-  // --- Render pots ---
-  function renderPots() {
+  // --- Render ALL pots (discovered + empty) ---
+  function renderAllPots() {
     colorPotsContainer.innerHTML = '';
     potElements = {};
 
-    const discovered = [...discoveredColors];
-    discovered.forEach(id => {
+    // Wheel colors (ring > 0)
+    const wheelIds = ColorEngine.getWheelOrder();
+    // Center colors (ring 0, e.g. braun)
+    const centerIds = ColorEngine.getCenterColors();
+    const allIds = [...wheelIds, ...centerIds];
+
+    allIds.forEach(id => {
       const color = ColorEngine.getColor(id);
       if (!color) return;
+      const isDiscovered = discoveredColors.has(id);
 
       const pot = document.createElement('div');
-      pot.className = 'pot color-pot';
       pot.dataset.colorId = id;
-      pot.setAttribute('role', 'button');
-      pot.setAttribute('aria-label', `${color.name} Farbtopf`);
+      pot.setAttribute('aria-label', `${isDiscovered ? color.name : '???'} Farbtopf`);
 
-      pot.innerHTML = `
-        <div class="pot-body">
-          <div class="pot-fill" style="background-color: ${color.hex}"></div>
-        </div>
-        <div class="pot-label">${color.name}</div>
-      `;
+      if (isDiscovered) {
+        pot.className = 'pot color-pot';
+        pot.setAttribute('role', 'button');
+        pot.innerHTML = `
+          <div class="pot-body">
+            <div class="pot-fill" style="background-color: ${color.hex}"></div>
+          </div>
+          <div class="pot-label">${color.name}</div>
+        `;
+      } else {
+        pot.className = 'pot empty-pot';
+        pot.innerHTML = `
+          <div class="pot-body">
+            <div class="pot-fill"></div>
+          </div>
+          <div class="pot-label">???</div>
+        `;
+      }
 
       colorPotsContainer.appendChild(pot);
       potElements[id] = pot;
     });
   }
 
-  // --- Layout ---
+  // --- Color Wheel Layout ---
   function layoutPots() {
     const rect = playground.getBoundingClientRect();
     const W = rect.width;
@@ -192,102 +206,115 @@
     mixingPot.style.left = (centerX - mixSize / 2) + 'px';
     mixingPot.style.top = (centerY - mixSize / 2) + 'px';
 
-    const ids = [...discoveredColors];
-    const n = ids.length;
+    // Determine available radius
+    const maxAvail = Math.min(W / 2, H / 2) - potSize * 0.7;
 
-    // Determine if we use radial or row layout
-    const isNarrow = W < 500;
+    // Ring radii: outer (primary), middle (secondary), inner (tertiary)
+    const ringRadii = {
+      1: maxAvail * 0.92,  // Primary: outermost
+      2: maxAvail * 0.62,  // Secondary: middle
+      3: maxAvail * 0.35,  // Tertiary: inner
+    };
 
-    if (isNarrow && n > 6) {
-      layoutLinear(ids, W, H, potSize, mixSize, centerX, centerY);
-    } else {
-      layoutRadial(ids, W, H, potSize, mixSize, centerX, centerY);
-    }
-  }
-
-  function layoutRadial(ids, W, H, potSize, mixSize, centerX, centerY) {
-    const n = ids.length;
-    // Calculate radius to fit all pots
-    const minDist = potSize * 1.3;
-    const circumference = n * minDist;
-    let radius = Math.max(mixSize / 2 + potSize, circumference / (2 * Math.PI));
-
-    // Ensure pots stay within bounds with padding
-    const maxRadius = Math.min(W / 2 - potSize, H / 2 - potSize - 20);
-    if (radius > maxRadius) {
-      // Auto-zoom: shrink pot size via scale
-      const scale = maxRadius / radius;
-      radius = maxRadius;
-      Object.values(potElements).forEach(el => {
-        el.style.transform = `scale(${Math.max(0.5, scale)})`;
-      });
-    } else {
-      Object.values(potElements).forEach(el => {
-        el.style.transform = '';
-      });
+    // Auto-scale if too cramped
+    let scale = 1;
+    const minRadius = mixSize / 2 + potSize * 0.6;
+    if (ringRadii[3] < minRadius) {
+      scale = Math.max(0.5, minRadius / (maxAvail * 0.35));
+      // Don't scale up, only apply scaling to pots if space is too small
+      scale = Math.min(1, 1 / scale);
     }
 
-    ids.forEach((id, i) => {
+    const allIds = ColorEngine.getAllColorIds();
+
+    allIds.forEach(id => {
       const el = potElements[id];
       if (!el) return;
+      const color = ColorEngine.getColor(id);
 
-      const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-      const x = centerX + Math.cos(angle) * radius - potSize / 2;
-      const y = centerY + Math.sin(angle) * radius - potSize / 2;
+      if (color.ring === 0) {
+        // Center color (braun) - place near mixing pot, offset below
+        const x = centerX - potSize / 2;
+        const y = centerY + mixSize / 2 + 10;
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        potHomePositions[id] = { x, y };
+        el.style.transform = scale < 1 ? `scale(${scale})` : '';
+        return;
+      }
+
+      const radius = ringRadii[color.ring] || ringRadii[1];
+      // Convert wheelAngle to radians; 0° = top (12 o'clock), clockwise
+      const angleRad = (color.wheelAngle - 90) * (Math.PI / 180);
+      const x = centerX + Math.cos(angleRad) * radius - potSize / 2;
+      const y = centerY + Math.sin(angleRad) * radius - potSize / 2;
 
       el.style.left = x + 'px';
       el.style.top = y + 'px';
-
+      el.style.transform = scale < 1 ? `scale(${scale})` : '';
       potHomePositions[id] = { x, y };
     });
   }
 
-  function layoutLinear(ids, W, H, potSize, mixSize, centerX, centerY) {
-    const n = ids.length;
-    const cols = Math.ceil(Math.sqrt(n * (W / H)));
-    const topCount = Math.ceil(n / 2);
-    const bottomCount = n - topCount;
+  // --- Hint system: show recipe connections ---
+  function showHints(targetId) {
+    clearHints();
+    activeHintId = targetId;
+    const color = ColorEngine.getColor(targetId);
+    if (!color || !color.recipes || color.recipes.length === 0) return;
 
-    const topY = 20;
-    const bottomY = H - potSize - 30;
-    const mixTopBound = centerY - mixSize / 2;
-    const mixBotBound = centerY + mixSize / 2;
+    const targetEl = potElements[targetId];
+    if (targetEl) targetEl.classList.add('hint-active');
 
-    // Top row
-    const topIds = ids.slice(0, topCount);
-    const topSpacing = Math.min(potSize * 1.3, (W - 20) / topCount);
-    const topStartX = centerX - (topCount * topSpacing) / 2 + topSpacing / 2 - potSize / 2;
+    const potSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
+    const halfPot = potSize / 2;
 
-    topIds.forEach((id, i) => {
-      const el = potElements[id];
-      if (!el) return;
-      const x = topStartX + i * topSpacing;
-      const y = topY;
-      el.style.left = x + 'px';
-      el.style.top = y + 'px';
-      potHomePositions[id] = { x, y };
+    color.recipes.forEach(([a, b]) => {
+      const posA = potHomePositions[a];
+      const posB = potHomePositions[b];
+      const posT = potHomePositions[targetId];
+      if (!posA || !posB || !posT) return;
+
+      const colorA = ColorEngine.getColor(a);
+      const colorB = ColorEngine.getColor(b);
+
+      // Line from A to target
+      const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line1.setAttribute('x1', posA.x + halfPot);
+      line1.setAttribute('y1', posA.y + halfPot);
+      line1.setAttribute('x2', posT.x + halfPot);
+      line1.setAttribute('y2', posT.y + halfPot);
+      line1.setAttribute('class', 'hint-line visible');
+      line1.setAttribute('stroke', colorA ? colorA.hex : '#888');
+      hintSvg.appendChild(line1);
+
+      // Line from B to target
+      const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line2.setAttribute('x1', posB.x + halfPot);
+      line2.setAttribute('y1', posB.y + halfPot);
+      line2.setAttribute('x2', posT.x + halfPot);
+      line2.setAttribute('y2', posT.y + halfPot);
+      line2.setAttribute('class', 'hint-line visible');
+      line2.setAttribute('stroke', colorB ? colorB.hex : '#888');
+      hintSvg.appendChild(line2);
+
+      // Highlight source pots
+      const elA = potElements[a];
+      const elB = potElements[b];
+      if (elA) elA.classList.add('hint-active');
+      if (elB) elB.classList.add('hint-active');
     });
+  }
 
-    // Bottom row
-    const botIds = ids.slice(topCount);
-    const botSpacing = Math.min(potSize * 1.3, (W - 20) / Math.max(bottomCount, 1));
-    const botStartX = centerX - (bottomCount * botSpacing) / 2 + botSpacing / 2 - potSize / 2;
-
-    botIds.forEach((id, i) => {
-      const el = potElements[id];
-      if (!el) return;
-      const x = botStartX + i * botSpacing;
-      const y = bottomY;
-      el.style.left = x + 'px';
-      el.style.top = y + 'px';
-      potHomePositions[id] = { x, y };
-    });
+  function clearHints() {
+    activeHintId = null;
+    hintSvg.innerHTML = '';
+    document.querySelectorAll('.pot.hint-active').forEach(el => el.classList.remove('hint-active'));
   }
 
   // --- Progress ---
   function renderProgress() {
     progressDots.innerHTML = '';
-    const total = ColorEngine.getTotalDiscoverable();
     const allIds = ColorEngine.getAllColorIds();
 
     allIds.forEach(id => {
@@ -315,7 +342,7 @@
 
   function animateMixFill() {
     mixFill.classList.remove('mix-fill-animate');
-    void mixFill.offsetWidth; // force reflow
+    void mixFill.offsetWidth;
     mixFill.classList.add('mix-fill-animate');
   }
 
@@ -327,9 +354,53 @@
     setTimeout(() => mixRipple.classList.remove('active'), 800);
   }
 
+  // --- Fly color blob from mix pot to target pot ---
+  function flyColorToTarget(colorId, callback) {
+    const color = ColorEngine.getColor(colorId);
+    const targetHome = potHomePositions[colorId];
+    if (!color || !targetHome) {
+      if (callback) callback();
+      return;
+    }
+
+    const pgRect = playground.getBoundingClientRect();
+    const mixRect = mixingPot.getBoundingClientRect();
+    const potSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--pot-size'));
+
+    const blob = document.createElement('div');
+    blob.className = 'color-fly-blob';
+    blob.style.backgroundColor = color.hex;
+
+    // Start at mix pot center
+    const startSize = 40;
+    const startX = (mixRect.left - pgRect.left) + mixRect.width / 2 - startSize / 2;
+    const startY = (mixRect.top - pgRect.top) + mixRect.height / 2 - startSize / 2;
+    blob.style.width = startSize + 'px';
+    blob.style.height = startSize + 'px';
+    blob.style.left = startX + 'px';
+    blob.style.top = startY + 'px';
+    playground.appendChild(blob);
+
+    // Animate to target pot
+    requestAnimationFrame(() => {
+      blob.style.left = (targetHome.x + potSize / 2 - potSize * 0.3) + 'px';
+      blob.style.top = (targetHome.y + potSize / 2 - potSize * 0.3) + 'px';
+      blob.style.width = (potSize * 0.6) + 'px';
+      blob.style.height = (potSize * 0.6) + 'px';
+      blob.style.opacity = '0.7';
+    });
+
+    setTimeout(() => {
+      blob.remove();
+      if (callback) callback();
+    }, 750);
+  }
+
   // --- Core: Add color to mix ---
   function addToMix(colorId, sourceEl) {
-    // Pour animation on source pot
+    // Only allow dragging discovered colors
+    if (!discoveredColors.has(colorId)) return;
+
     if (sourceEl) {
       sourceEl.classList.add('pouring');
       setTimeout(() => sourceEl.classList.remove('pouring'), 600);
@@ -347,7 +418,6 @@
     }
 
     if (!mixPotColorId) {
-      // First color in the pot
       mixPotColorId = colorId;
       showRipple(incomingColor.hex);
       animateMixFill();
@@ -363,43 +433,36 @@
     showRipple(incomingColor.hex);
 
     setTimeout(() => {
+      const isNewDiscovery = !discoveredColors.has(result.id);
+
       mixPotColorId = result.id;
       animateMixFill();
       updateMixPotVisual();
       saveState();
 
-      // Check if this is a new discovery
-      if (!discoveredColors.has(result.id)) {
+      if (isNewDiscovery) {
+        // --- New color discovered ---
         discoveredColors.add(result.id);
         saveState();
-        renderPots();
-        layoutPots();
 
-        // Animate the new pot
-        const newPot = potElements[result.id];
-        if (newPot) {
-          newPot.classList.add('new-discovery');
-          setTimeout(() => newPot.classList.remove('new-discovery'), 800);
-        }
+        // Show auto-dismissing popup
+        showDiscoveryPopup(result.color, result.id);
 
-        // Update progress
-        const dot = progressDots.querySelector(`.progress-dot:nth-child(${ColorEngine.getAllColorIds().indexOf(result.id) + 1})`);
-        if (dot) {
-          dot.classList.add('filled', 'just-found');
-          dot.style.backgroundColor = result.color.hex;
-          dot.title = result.color.name;
-          setTimeout(() => dot.classList.remove('just-found'), 600);
-        } else {
-          renderProgress();
-        }
+      } else {
+        // --- Already known color: fly to pot and clear mix ---
+        flyColorToTarget(result.id, () => {
+          // Briefly highlight the target pot
+          const targetEl = potElements[result.id];
+          if (targetEl) {
+            targetEl.classList.add('new-discovery');
+            setTimeout(() => targetEl.classList.remove('new-discovery'), 600);
+          }
+        });
 
-        // Show discovery popup
-        showDiscoveryPopup(result.color);
-
-        // Check for full completion
-        if (discoveredColors.size >= ColorEngine.getTotalDiscoverable() && !rewardShown) {
-          setTimeout(() => showReward(), 1500);
-        }
+        // Clear mix pot after flying
+        setTimeout(() => {
+          clearMixPot();
+        }, 200);
       }
     }, 300);
   }
@@ -412,12 +475,47 @@
     saveState();
   }
 
-  // --- Discovery popup ---
-  function showDiscoveryPopup(color) {
+  // --- Discovery popup (auto-dismiss, then fly to pot) ---
+  function showDiscoveryPopup(color, colorId) {
     popupColor.style.backgroundColor = color.hex;
     popupTitle.textContent = 'Neue Farbe entdeckt!';
     popupName.textContent = color.name;
-    discoveryPopup.classList.remove('hidden');
+
+    discoveryPopup.classList.remove('hidden', 'auto-dismiss');
+    void discoveryPopup.offsetWidth;
+    discoveryPopup.classList.add('auto-dismiss');
+
+    // After popup fades out (~2s), update pots and fly color to its slot
+    setTimeout(() => {
+      discoveryPopup.classList.add('hidden');
+      discoveryPopup.classList.remove('auto-dismiss');
+
+      // Re-render to convert empty pot to filled
+      renderAllPots();
+      layoutPots();
+
+      // Fly the color blob from mix pot to the new pot
+      flyColorToTarget(colorId, () => {
+        const newPot = potElements[colorId];
+        if (newPot) {
+          newPot.classList.add('new-discovery');
+          setTimeout(() => newPot.classList.remove('new-discovery'), 800);
+        }
+      });
+
+      // Clear the mix pot
+      setTimeout(() => {
+        clearMixPot();
+      }, 100);
+
+      // Update progress
+      renderProgress();
+
+      // Check for full completion
+      if (discoveredColors.size >= ColorEngine.getTotalDiscoverable() && !rewardShown) {
+        setTimeout(() => showReward(), 1500);
+      }
+    }, 2000);
   }
 
   // --- Reward ---
@@ -458,21 +556,20 @@
 
   // --- Event binding ---
   function bindEvents() {
-    // Pointer events for drag & drop and click
     playground.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('pointermove', onPointerMove);
     document.addEventListener('pointerup', onPointerUp);
 
-    // Click on mixing pot (for click-mode)
     mixingPot.addEventListener('pointerup', onMixPotClick);
 
-    // Popup close
-    popupClose.addEventListener('click', () => discoveryPopup.classList.add('hidden'));
+    // Popup: click backdrop to dismiss early
     discoveryPopup.addEventListener('click', (e) => {
-      if (e.target === discoveryPopup) discoveryPopup.classList.add('hidden');
+      if (e.target === discoveryPopup) {
+        discoveryPopup.classList.add('hidden');
+        discoveryPopup.classList.remove('auto-dismiss');
+      }
     });
 
-    // Reward close
     rewardClose.addEventListener('click', () => rewardOverlay.classList.add('hidden'));
 
     // Reset
@@ -493,7 +590,6 @@
       if (e.target === resetModal) resetModal.classList.add('hidden');
     });
 
-    // Resize
     window.addEventListener('resize', () => {
       layoutPots();
       setupSplatterCanvas();
@@ -502,8 +598,8 @@
 
   // --- Pointer handlers ---
   function onPointerDown(e) {
-    // Find if we clicked a color pot
     const pot = e.target.closest('.color-pot');
+    const emptyPot = e.target.closest('.empty-pot');
     const isSponge = e.target.closest('.tool-sponge');
 
     if (pot) {
@@ -526,6 +622,26 @@
       pot.classList.add('dragging');
       pot.classList.remove('returning');
       pot.setPointerCapture(e.pointerId);
+
+    } else if (emptyPot) {
+      // Long-press on empty pot: start hint timer
+      e.preventDefault();
+      const id = emptyPot.dataset.colorId;
+      emptyPot.setPointerCapture(e.pointerId);
+
+      // Show hints immediately on press-and-hold
+      hintTimer = setTimeout(() => {
+        showHints(id);
+      }, 300);
+
+      // Also store info to clear on release
+      dragging = {
+        el: emptyPot,
+        type: 'empty-hint',
+        colorId: id,
+        moved: false,
+      };
+
     } else if (isSponge) {
       e.preventDefault();
       const rect = sponge.getBoundingClientRect();
@@ -545,16 +661,26 @@
       sponge.classList.remove('returning');
       sponge.setPointerCapture(e.pointerId);
 
-      // Remove bottom/right positioning so we can use left/top
       sponge.style.bottom = 'auto';
       sponge.style.right = 'auto';
       sponge.style.left = (rect.left - pgRect.left) + 'px';
       sponge.style.top = (rect.top - pgRect.top) + 'px';
+
+    } else {
+      // Clicked on empty space: clear hints
+      clearHints();
     }
   }
 
   function onPointerMove(e) {
     if (!dragging) return;
+
+    if (dragging.type === 'empty-hint') {
+      // Cancel hint if finger moves
+      if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+      return;
+    }
+
     e.preventDefault();
 
     const pgRect = playground.getBoundingClientRect();
@@ -565,33 +691,35 @@
     dragging.el.style.top = y + 'px';
     dragging.moved = true;
 
-    // Highlight mix pot when hovering
     if (dragging.type === 'pot') {
       const mixRect = mixingPot.getBoundingClientRect();
       const overMix = isOverElement(e.clientX, e.clientY, mixRect);
       mixingPot.classList.toggle('highlight', overMix);
     }
 
-    // Sponge: wipe splatters and mix pot
     if (dragging.type === 'sponge') {
       const spongeX = e.clientX - pgRect.left;
       const spongeY = e.clientY - pgRect.top;
       clearSplattersNear(spongeX, spongeY, 40);
 
-      // Check if sponge is over mix pot
       const mixRect = mixingPot.getBoundingClientRect();
-      if (isOverElement(e.clientX, e.clientY, mixRect)) {
-        mixingPot.classList.add('highlight');
-      } else {
-        mixingPot.classList.remove('highlight');
-      }
+      mixingPot.classList.toggle('highlight', isOverElement(e.clientX, e.clientY, mixRect));
     }
   }
 
   function onPointerUp(e) {
     if (!dragging) return;
 
-    const pgRect = playground.getBoundingClientRect();
+    // Clear hint timer if any
+    if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+
+    if (dragging.type === 'empty-hint') {
+      // Release from empty pot: clear hints after a short delay
+      setTimeout(clearHints, 200);
+      dragging = null;
+      return;
+    }
+
     mixingPot.classList.remove('highlight');
 
     if (dragging.type === 'pot') {
@@ -600,23 +728,18 @@
       pot.classList.remove('dragging');
 
       if (dragging.moved) {
-        // Check if dropped on mix pot
         const mixRect = mixingPot.getBoundingClientRect();
         if (isOverElement(e.clientX, e.clientY, mixRect)) {
           addToMix(colorId, pot);
           deselectAll();
         }
-
-        // Return to home position
         returnPotHome(colorId, pot);
       } else {
-        // Click mode: select/deselect
         handlePotClick(colorId, pot);
       }
     } else if (dragging.type === 'sponge') {
       sponge.classList.remove('dragging');
 
-      // Check if dropped on mix pot
       const mixRect = mixingPot.getBoundingClientRect();
       if (dragging.moved && isOverElement(e.clientX, e.clientY, mixRect)) {
         sponge.classList.add('wiping');
@@ -624,7 +747,6 @@
         clearMixPot();
       }
 
-      // Return sponge to home
       returnSpongeHome();
     }
 
@@ -632,7 +754,6 @@
   }
 
   function onMixPotClick(e) {
-    // If a pot is selected (click mode) and we click the mix pot
     if (selectedPotId && !dragging) {
       const sourceEl = potElements[selectedPotId];
       addToMix(selectedPotId, sourceEl);
@@ -642,7 +763,6 @@
 
   function handlePotClick(colorId, potEl) {
     if (selectedPotId === colorId) {
-      // Deselect
       deselectAll();
     } else {
       deselectAll();
@@ -668,7 +788,6 @@
 
   function returnSpongeHome() {
     sponge.classList.add('returning');
-    // Reset to CSS-defined position
     sponge.style.left = '';
     sponge.style.top = '';
     sponge.style.bottom = '20px';
@@ -693,10 +812,11 @@
     selectedPotId = null;
 
     splatterCtx.clearRect(0, 0, splatterCanvas.width, splatterCanvas.height);
+    clearHints();
 
     resetModal.classList.add('hidden');
     loadState();
-    renderPots();
+    renderAllPots();
     renderProgress();
     updateMixPotVisual();
     layoutPots();

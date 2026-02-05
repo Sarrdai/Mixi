@@ -46,27 +46,30 @@ const ColorEngine = (() => {
 
   // --- Farbdefinitionen (RYB-Anteile) ---
   // Jede Farbe ist definiert als [R, Y, B] Anteile (0-1)
+  // wheelAngle: Position auf dem Farbkreis in Grad (0° = oben/12-Uhr, im Uhrzeigersinn)
+  // ring: 1 = äußerer Ring (Primär), 2 = mittlerer Ring (Sekundär), 3 = innerer Ring (Tertiär), 0 = Zentrum
+  // recipes: Welche Kombinationen diese Farbe erzeugen [[a,b], ...]
   const COLOR_DEFS = {
-    // Primärfarben (Stufe 1)
-    rot:          { ryb: [1, 0, 0],     tier: 1, name: 'Rot' },
-    gelb:         { ryb: [0, 1, 0],     tier: 1, name: 'Gelb' },
-    blau:         { ryb: [0, 0, 1],     tier: 1, name: 'Blau' },
+    // Primärfarben (Stufe 1) - 120° Abstände
+    rot:          { ryb: [1, 0, 0],     tier: 1, name: 'Rot',         wheelAngle: 0,   ring: 1, recipes: [] },
+    gelb:         { ryb: [0, 1, 0],     tier: 1, name: 'Gelb',        wheelAngle: 120, ring: 1, recipes: [] },
+    blau:         { ryb: [0, 0, 1],     tier: 1, name: 'Blau',        wheelAngle: 240, ring: 1, recipes: [] },
 
-    // Sekundärfarben (Stufe 2)
-    orange:       { ryb: [1, 1, 0],     tier: 2, name: 'Orange' },
-    gruen:        { ryb: [0, 1, 1],     tier: 2, name: 'Grün' },
-    violett:      { ryb: [1, 0, 1],     tier: 2, name: 'Violett' },
+    // Sekundärfarben (Stufe 2) - zwischen Primärfarben
+    orange:       { ryb: [1, 1, 0],     tier: 2, name: 'Orange',      wheelAngle: 60,  ring: 2, recipes: [['rot','gelb']] },
+    gruen:        { ryb: [0, 1, 1],     tier: 2, name: 'Grün',        wheelAngle: 180, ring: 2, recipes: [['gelb','blau']] },
+    violett:      { ryb: [1, 0, 1],     tier: 2, name: 'Violett',     wheelAngle: 300, ring: 2, recipes: [['rot','blau']] },
 
-    // Tertiärfarben (Stufe 3)
-    rotorange:    { ryb: [2, 1, 0],     tier: 3, name: 'Rot-Orange' },
-    gelborange:   { ryb: [1, 2, 0],     tier: 3, name: 'Gelb-Orange' },
-    gelbgruen:    { ryb: [0, 2, 1],     tier: 3, name: 'Gelb-Grün' },
-    blaugruen:    { ryb: [0, 1, 2],     tier: 3, name: 'Blau-Grün' },
-    blauviolett:  { ryb: [1, 0, 2],     tier: 3, name: 'Blau-Violett' },
-    rotviolett:   { ryb: [2, 0, 1],     tier: 3, name: 'Rot-Violett' },
+    // Tertiärfarben (Stufe 3) - zwischen Primär- und Sekundärfarben
+    rotorange:    { ryb: [2, 1, 0],     tier: 3, name: 'Rot-Orange',  wheelAngle: 30,  ring: 3, recipes: [['rot','orange']] },
+    gelborange:   { ryb: [1, 2, 0],     tier: 3, name: 'Gelb-Orange', wheelAngle: 90,  ring: 3, recipes: [['gelb','orange']] },
+    gelbgruen:    { ryb: [0, 2, 1],     tier: 3, name: 'Gelb-Grün',   wheelAngle: 150, ring: 3, recipes: [['gelb','gruen']] },
+    blaugruen:    { ryb: [0, 1, 2],     tier: 3, name: 'Blau-Grün',   wheelAngle: 210, ring: 3, recipes: [['blau','gruen']] },
+    blauviolett:  { ryb: [1, 0, 2],     tier: 3, name: 'Blau-Violett',wheelAngle: 270, ring: 3, recipes: [['blau','violett']] },
+    rotviolett:   { ryb: [2, 0, 1],     tier: 3, name: 'Rot-Violett', wheelAngle: 330, ring: 3, recipes: [['rot','violett']] },
 
-    // Spezialfarbe
-    braun:        { ryb: [1, 1, 1],     tier: 3, name: 'Braun' },
+    // Spezialfarbe - im Zentrum
+    braun:        { ryb: [1, 1, 1],     tier: 3, name: 'Braun',       wheelAngle: 0,   ring: 0, recipes: [['rot','gruen'],['orange','violett'],['gelb','violett'],['blau','orange']] },
   };
 
   // Vorberechne RGB-Werte für alle Farben
@@ -168,6 +171,18 @@ const ColorEngine = (() => {
     return Object.keys(COLOR_DEFS).filter(k => COLOR_DEFS[k].tier <= maxTier);
   }
 
+  /** Returns color IDs sorted by wheel angle for proper color-wheel layout */
+  function getWheelOrder() {
+    return getAllColorIds()
+      .filter(id => COLOR_DEFS[id].ring > 0)
+      .sort((a, b) => COLOR_DEFS[a].wheelAngle - COLOR_DEFS[b].wheelAngle);
+  }
+
+  /** Returns IDs of colors in the center (ring 0) */
+  function getCenterColors() {
+    return getAllColorIds().filter(id => COLOR_DEFS[id].ring === 0);
+  }
+
   return {
     mix,
     getColor,
@@ -175,6 +190,8 @@ const ColorEngine = (() => {
     getAvailableColors,
     getTotalDiscoverable,
     getAllColorIds,
+    getWheelOrder,
+    getCenterColors,
     setMaxTier,
     rgbToHex,
     rybToRgb,
