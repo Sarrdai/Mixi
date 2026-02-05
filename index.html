@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#f0e6d3">
+  <meta name="description" content="Farbmisch-Welt - Lerne Farben mischen!">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>Farbmisch-Welt</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="header">
+      <h1>Farbmisch-Welt</h1>
+      <div id="progress-bar">
+        <span id="progress-label">Entdeckt:</span>
+        <div id="progress-dots"></div>
+      </div>
+    </header>
+
+    <main id="playground">
+      <canvas id="splatter-canvas"></canvas>
+
+      <div id="mixing-pot" class="pot mixing" data-color="">
+        <div class="pot-body">
+          <div class="pot-fill" id="mix-fill"></div>
+          <div class="pot-ripple" id="mix-ripple"></div>
+        </div>
+        <div class="pot-label">Mischtopf</div>
+      </div>
+
+      <div id="color-pots"></div>
+
+      <div id="sponge-tool" class="tool-sponge" title="Schwamm - Wische zum Leeren!">
+        <div class="sponge-icon">🧽</div>
+      </div>
+
+      <button id="reset-btn" class="btn-reset" title="Zurücksetzen">
+        <span class="reset-icon">↺</span>
+      </button>
+    </main>
+
+    <div id="discovery-popup" class="popup hidden">
+      <div class="popup-content">
+        <div class="popup-color-preview" id="popup-color"></div>
+        <h2 id="popup-title">Neue Farbe entdeckt!</h2>
+        <p id="popup-name"></p>
+        <button id="popup-close" class="btn-popup-close">Super!</button>
+      </div>
+    </div>
+
+    <div id="reward-overlay" class="overlay hidden">
+      <div class="reward-content">
+        <h1>Alle Farben entdeckt!</h1>
+        <div id="reward-colors"></div>
+        <div id="confetti-container"></div>
+        <button id="reward-close" class="btn-reward-close">Weiter malen!</button>
+      </div>
+    </div>
+
+    <div id="reset-modal" class="overlay hidden">
+      <div class="modal-content">
+        <h2>Wirklich zurücksetzen?</h2>
+        <p>Tippe <strong>RESET</strong> ein, um alles zu löschen:</p>
+        <input type="text" id="reset-input" autocomplete="off" autocapitalize="characters" placeholder="RESET">
+        <div class="modal-buttons">
+          <button id="reset-confirm" class="btn-confirm" disabled>Löschen</button>
+          <button id="reset-cancel" class="btn-cancel">Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="color-engine.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,682 @@
+/* ============================================
+   Farbmisch-Welt - Styles
+   ============================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #f5edd6;
+  --bg-paper: #faf6eb;
+  --text: #4a3728;
+  --text-light: #8b7355;
+  --shadow: rgba(74, 55, 40, 0.2);
+  --shadow-strong: rgba(74, 55, 40, 0.35);
+  --pot-size: 90px;
+  --mix-pot-size: 140px;
+  --pot-border: #5c4033;
+  --sponge-size: 60px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  font-family: 'Segoe UI', 'Comic Sans MS', 'Arial Rounded MT Bold', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* --- Header --- */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-paper);
+  box-shadow: 0 2px 8px var(--shadow);
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+#header h1 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.5px;
+}
+
+#progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#progress-label {
+  font-size: 0.8rem;
+  color: var(--text-light);
+}
+
+#progress-dots {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  max-width: 200px;
+}
+
+.progress-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--text-light);
+  transition: background-color 0.5s ease, border-color 0.5s ease, transform 0.3s ease;
+}
+
+.progress-dot.filled {
+  border-color: transparent;
+  transform: scale(1.1);
+}
+
+.progress-dot.just-found {
+  animation: dotPop 0.6s ease;
+}
+
+@keyframes dotPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.6); }
+  100% { transform: scale(1.1); }
+}
+
+/* --- Playground --- */
+#playground {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, var(--bg-paper) 0%, var(--bg) 70%);
+}
+
+#splatter-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+#color-pots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#color-pots > .pot {
+  pointer-events: auto;
+}
+
+/* --- Pots (generic) --- */
+.pot {
+  position: absolute;
+  width: var(--pot-size);
+  height: var(--pot-size);
+  cursor: grab;
+  z-index: 10;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+              filter 0.2s ease;
+  will-change: transform;
+}
+
+.pot:active {
+  cursor: grabbing;
+}
+
+.pot.selected {
+  filter: brightness(1.15) drop-shadow(0 0 10px rgba(255,255,255,0.6));
+  z-index: 15;
+}
+
+.pot.selected .pot-body {
+  border-color: #fff;
+  box-shadow: 0 0 0 3px var(--pot-border), 0 4px 16px var(--shadow-strong);
+}
+
+.pot-body {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 4px solid var(--pot-border);
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 4px 12px var(--shadow),
+              inset 0 -6px 12px rgba(0,0,0,0.15);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.pot-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  transition: background-color 0.4s ease;
+}
+
+.pot-label {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-light);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* --- Pot hover/interaction --- */
+.pot:hover .pot-body {
+  box-shadow: 0 6px 18px var(--shadow-strong),
+              inset 0 -6px 12px rgba(0,0,0,0.15);
+}
+
+.pot.dragging {
+  z-index: 50;
+  transition: none;
+  filter: brightness(1.1) drop-shadow(0 8px 20px rgba(0,0,0,0.3));
+}
+
+.pot.returning {
+  transition: left 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+              top 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+              transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pot.pouring {
+  animation: pourTilt 0.6s ease-in-out;
+}
+
+@keyframes pourTilt {
+  0% { transform: rotate(0deg) scale(1); }
+  30% { transform: rotate(-25deg) scale(0.9); }
+  60% { transform: rotate(-30deg) scale(0.85); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+.pot.new-discovery {
+  animation: discoveryBounce 0.8s ease;
+}
+
+@keyframes discoveryBounce {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.3); opacity: 1; }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+/* --- Mixing pot specifics --- */
+.pot.mixing {
+  width: var(--mix-pot-size);
+  height: var(--mix-pot-size);
+  cursor: default;
+  z-index: 5;
+}
+
+.pot.mixing .pot-body {
+  border-width: 5px;
+  background: var(--bg-paper);
+  box-shadow: 0 6px 20px var(--shadow),
+              inset 0 -8px 16px rgba(0,0,0,0.1);
+}
+
+.pot.mixing.highlight .pot-body {
+  border-color: #fff;
+  box-shadow: 0 0 0 4px rgba(255,200,0,0.5),
+              0 6px 20px var(--shadow),
+              inset 0 -8px 16px rgba(0,0,0,0.1);
+}
+
+.pot-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0);
+}
+
+.pot-ripple.active {
+  animation: rippleSpread 0.8s ease-out forwards;
+}
+
+@keyframes rippleSpread {
+  0% { transform: scale(0); opacity: 0.7; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* --- Sponge --- */
+.tool-sponge {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: var(--sponge-size);
+  height: var(--sponge-size);
+  cursor: grab;
+  z-index: 20;
+  transition: transform 0.3s ease;
+}
+
+.tool-sponge:hover {
+  transform: scale(1.1);
+}
+
+.tool-sponge.dragging {
+  cursor: grabbing;
+  z-index: 50;
+  transition: none;
+  transform: scale(1.15);
+}
+
+.tool-sponge.returning {
+  transition: left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+              top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+              bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+              right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+              transform 0.3s ease;
+}
+
+.tool-sponge.wiping {
+  animation: spongeWiggle 0.4s ease;
+}
+
+@keyframes spongeWiggle {
+  0% { transform: rotate(0) scale(1.1); }
+  25% { transform: rotate(-10deg) scale(1.15); }
+  50% { transform: rotate(10deg) scale(1.15); }
+  75% { transform: rotate(-5deg) scale(1.1); }
+  100% { transform: rotate(0) scale(1.1); }
+}
+
+.sponge-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  text-align: center;
+  filter: drop-shadow(0 2px 4px var(--shadow));
+}
+
+/* --- Reset button --- */
+.btn-reset {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid var(--text-light);
+  background: var(--bg-paper);
+  color: var(--text-light);
+  font-size: 1.4rem;
+  cursor: pointer;
+  z-index: 20;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-reset:hover {
+  background: var(--text-light);
+  color: var(--bg-paper);
+}
+
+/* --- Discovery Popup --- */
+.popup {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  animation: fadeIn 0.3s ease;
+}
+
+.popup.hidden {
+  display: none;
+}
+
+.popup-content {
+  background: var(--bg-paper);
+  border-radius: 24px;
+  padding: 32px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  animation: popupScale 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-width: 280px;
+  width: 90%;
+}
+
+.popup-color-preview {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  border: 4px solid var(--pot-border);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.popup-content h2 {
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+}
+
+.popup-content p {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+.btn-popup-close {
+  background: var(--pot-border);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 32px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-popup-close:hover {
+  background: var(--text);
+}
+
+@keyframes popupScale {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* --- Reward overlay --- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.reward-content {
+  background: var(--bg-paper);
+  border-radius: 24px;
+  padding: 40px 32px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  animation: popupScale 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-width: 360px;
+  width: 90%;
+  position: relative;
+  overflow: hidden;
+}
+
+.reward-content h1 {
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+
+#reward-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.reward-color-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--pot-border);
+  animation: rewardDotPop 0.4s ease backwards;
+}
+
+.btn-reward-close {
+  background: var(--pot-border);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 12px 36px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-reward-close:hover {
+  background: var(--text);
+}
+
+@keyframes rewardDotPop {
+  0% { transform: scale(0); }
+  70% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+/* --- Confetti --- */
+#confetti-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confetti {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  animation: confettiFall 2.5s ease-in forwards;
+  opacity: 0.9;
+}
+
+@keyframes confettiFall {
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(400px) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+/* --- Reset modal --- */
+.modal-content {
+  background: var(--bg-paper);
+  border-radius: 24px;
+  padding: 32px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  animation: popupScale 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-width: 320px;
+  width: 90%;
+}
+
+.modal-content h2 {
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+}
+
+.modal-content p {
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  color: var(--text-light);
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 1.2rem;
+  text-align: center;
+  border: 2px solid var(--text-light);
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  background: #fff;
+  color: var(--text);
+}
+
+.modal-content input:focus {
+  outline: none;
+  border-color: var(--pot-border);
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.btn-confirm {
+  background: #d9534f;
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  padding: 10px 24px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all 0.2s ease;
+}
+
+.btn-confirm:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn-confirm:not(:disabled) {
+  opacity: 1;
+}
+
+.btn-confirm:not(:disabled):hover {
+  background: #c9302c;
+}
+
+.btn-cancel {
+  background: var(--text-light);
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  padding: 10px 24px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-cancel:hover {
+  background: var(--text);
+}
+
+/* --- Responsive --- */
+@media (max-width: 500px) {
+  :root {
+    --pot-size: 68px;
+    --mix-pot-size: 110px;
+    --sponge-size: 50px;
+  }
+
+  #header h1 {
+    font-size: 1rem;
+  }
+
+  .pot-label {
+    font-size: 0.6rem;
+    bottom: -16px;
+  }
+
+  #progress-dots {
+    max-width: 140px;
+  }
+
+  .progress-dot {
+    width: 9px;
+    height: 9px;
+  }
+}
+
+@media (max-width: 360px) {
+  :root {
+    --pot-size: 58px;
+    --mix-pot-size: 95px;
+  }
+}
+
+@media (min-width: 800px) {
+  :root {
+    --pot-size: 100px;
+    --mix-pot-size: 160px;
+  }
+
+  #header h1 {
+    font-size: 1.4rem;
+  }
+}
+
+/* --- Mix fill animation --- */
+.mix-fill-animate {
+  animation: fillPulse 0.5s ease;
+}
+
+@keyframes fillPulse {
+  0% { transform: scale(0.85); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* --- Splatter spots on canvas --- */
+.splatter-spot {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.6;
+  animation: splatterAppear 0.5s ease;
+}
+
+@keyframes splatterAppear {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.2); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 0.6; }
+}

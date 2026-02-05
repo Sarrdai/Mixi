@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#f5edd6"/>
+  <!-- Red pot -->
+  <circle cx="256" cy="140" r="65" fill="#e63946" stroke="#5c4033" stroke-width="8"/>
+  <!-- Yellow pot -->
+  <circle cx="155" cy="320" r="65" fill="#ffbe0b" stroke="#5c4033" stroke-width="8"/>
+  <!-- Blue pot -->
+  <circle cx="357" cy="320" r="65" fill="#457b9d" stroke="#5c4033" stroke-width="8"/>
+  <!-- Center mix -->
+  <circle cx="256" cy="256" r="50" fill="#faf6eb" stroke="#5c4033" stroke-width="6" stroke-dasharray="8 4"/>
+</svg>
