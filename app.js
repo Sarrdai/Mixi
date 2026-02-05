@@ -173,7 +173,6 @@
           <div class="pot-body">
             <div class="pot-fill" style="background-color: ${color.hex}"></div>
           </div>
-          <div class="pot-label">${color.name}</div>
         `;
       } else {
         pot.className = 'pot empty-pot';
@@ -181,7 +180,6 @@
           <div class="pot-body">
             <div class="pot-fill"></div>
           </div>
-          <div class="pot-label">???</div>
         `;
       }
 
@@ -627,6 +625,11 @@
       const rect = pot.getBoundingClientRect();
       const pgRect = playground.getBoundingClientRect();
 
+      // Show hints on long-press for filled pots too
+      hintTimer = setTimeout(() => {
+        showHints(id);
+      }, 300);
+
       dragging = {
         el: pot,
         type: 'pot',
@@ -714,6 +717,10 @@
     dragging.moved = true;
 
     if (dragging.type === 'pot') {
+      // Clear hint timer once user starts dragging
+      if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+      if (activeHintId) clearHints();
+
       const mixRect = mixingPot.getBoundingClientRect();
       const overMix = isOverElement(e.clientX, e.clientY, mixRect);
       mixingPot.classList.toggle('highlight', overMix);
@@ -794,6 +801,7 @@
       pot.classList.remove('dragging');
 
       if (dragging.moved) {
+        clearHints();
         const mixRect = mixingPot.getBoundingClientRect();
         if (isOverElement(e.clientX, e.clientY, mixRect)) {
           addToMix(colorId, pot);
@@ -801,6 +809,10 @@
         }
         returnPotHome(colorId, pot);
       } else {
+        // If hints are showing, dismiss them on tap release; otherwise handle click
+        if (activeHintId) {
+          setTimeout(clearHints, 200);
+        }
         handlePotClick(colorId, pot);
       }
     } else if (dragging.type === 'sponge') {
